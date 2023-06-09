@@ -1,0 +1,994 @@
+---
+title: "Group 2 Analysis"
+author: "R Group"
+date: "2023-02-06"
+output: pdf_document
+toc: TRUE
+---
+\pagebreak
+# 1.0 Loaded Packages
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
+library(pacman)
+pacman::p_load(pacman,party,psych,rio,tidyverse)
+library(datasets)
+library(mice)
+library(naniar)
+library(ggplot2)
+library(reshape2)  
+```
+\pagebreak
+# 2.0 Data Observations
+## 2.1 Description of the data and response variable
+
+Prior explore further into data processing, it is important for us to understand what data are available to us. There are total of 28 columns and 742 rows in the dataset retrieved. Below shows the description of the relevant column name.  
+
+
+"Job Title": The title of the job posting
+
+"Salary Estimate":	The range of the salary offer
+
+"Job Description":	The description of the job posting
+
+"Rating":	The rating of the company that posted job offer
+
+"Company Name":	The name of the company that posted job offer
+
+"Location":	The location of the company that posted job offer
+
+"Headquarters":	The headquarter location of the company that posted job offer
+
+"Size":	The size of the company that posted job offer
+
+"Founded":	The year when the company that posted job offer was founded
+
+"Type of ownership":	The company’s type of ownership
+
+"Industry":	The industry of the company that posted job offer
+
+"Sector":	The sector of the company that posted job offer
+
+"Revenue":	The yearly revenue of the company that posted job offer
+
+"Competitors":	The competitors of the company that posted job offer
+
+"Hourly":	(Not defined)
+
+"employer_provided":	(Not defined)
+
+"min_salary":	The minimum salary range offered
+
+"max_salary":	The maximum salary range offered
+
+"avg_salary":	The average salary range offered
+
+"company_txt":	The name of the company
+
+"job_state":	The state where the job is located
+
+"same_state":	Whether the state where the job is located is the same as the location of the job seeker
+
+"age":	The age of the job seeker
+
+"python_yn":	Whether the job seeker knows Python
+
+"R_yn":	Whether the job seeker knows R
+
+"spark":	Whether the job seeker knows Spark
+
+"aws":	Whether the job seeker knows AWS
+
+"excel":	Whether the job seeker knows Excel  
+
+
+In the dataset, there are 21 columns that are related to the job posting company: "Job Title", "Salary Estimate", "Job Description", "Rating", "Company Name", "Location", "Headquarters", "Size", "Founded", "Type of ownership", "Industry", "Sector", "Revenue", "Competitors", "hourly", "employer_provided", "min_salary", "max_salary", "avg_salary", "company_txt" and "job_state".  
+
+However, column "hourly" and "employer_provided" were not described and defined by the data provider. With the data "0" and "1", we are unable to predict what are the purpose of the data collected and their usage. Understanding this, both of the data should be considered to be removed from the analysis as we do not have enough information to interpret the result from these data.  
+
+On the other hand, there are 7 columns in the dataset that are relevant to the job seeker information: "same_state", "age", "python_yn", "R_yn", "spark", "aws" and "excel".  
+
+In this project, the aim is to predict data scientists' salary using the data retrieved from Glassdoor.com, hence the response variable would be the salary. There are few columns in the dataset that are seemed to be related to salary, like "Salary Estimate", "min_salary", "max_salary" and "avg_salary". "Salary Estimate" is he range of the salary offer, "min_salary" and "max_salary" indicate the minimum and maximum range of the salary offered while "avg_salary" informed the average. In this case, "Salary Estimate", "min_salary" and "max_salary" seems to be informing a replicated information. Eg. Salary Estimate: 53K-91K (Glassdoor est.),  min_salary: 53, max_salary: 91, avg_salary: 72.
+
+Hence, it can be considered to remove these redundant data and focus on the "avg_salary" for response variable.
+
+## 2.2 Importing Our Dataset & Data Transformation
+
+```{r Import}
+
+Salary <- import("Salary.csv")%>%
+  as_tibble()%>%
+  rename(ownership = `Type of ownership`)%>%
+  mutate(ownership=as.factor(ownership))%>%
+  mutate(Sector=as.factor(Sector))%>%
+  mutate( job_state =as.factor(job_state))%>%
+  mutate(Industry=as.factor(Industry))%>%
+  mutate(Revenue=as.ordered(Revenue))%>%
+  mutate(Size=as.ordered(Size))%>%
+  mutate(python_yn=as.logical(python_yn))%>%
+  mutate(R_yn=as.logical(R_yn))%>%
+  mutate(spark=as.logical(spark))%>%
+  mutate(aws=as.logical(aws))%>%
+  mutate(excel=as.logical(excel))%>%
+  print()
+```
+
+We decided to transform the following attributes: "Sector", "Revenue", "Size", "Industry" as factor data type as these attributes were originally listed as character type. However, after observing the dataset, it can be deduced that it is a categorical variable with a limited number of categories. For example, job_state is an attribute that shows the US state of where the job is located. Furthermore, the following attributes: "python_yn", "R_yn", "spark", "aws" and "excel" have been transformed into logical/boolean data type as it was initially in double data type.
+
+
+
+
+
+## 2.3 A Quick Glance At Our Data
+```{r Summary}
+summary(Salary)
+```
+
+Using the summary() function, certain observations are seen to have "-1" in attributes such as "age", "Founded", "Rating", "Industry" and more. We are going to assume that these are missing values for these specific cases. On the other hand, "Revenue" refers to missing values as "Unknown / Non-Applicable". We will go further in detail on how we will deal with these missing values in the next section.
+
+
+
+\pagebreak
+
+# 3.0 Data Pre-processing and Cleaning
+
+
+## 3.1 Removing redundant variables
+First, lets begin with removing redundant variables as we have 28 variables in total. As we are using "avg_salary" as our target variable, it is sensible to remove "min_salary", "max_salary" and "Salary Estimate" as they will not be required for our analysis. "Competitors" should also be removed because it contains 460 missing values to 742 observations. Other attributes will be removed for their redundancy: "Job Title", "Job Description", "Company Name", "Location", "Headquarters", "Industry", "hourly", "employer_provided", "company_txt" and "same_state".
+```{r Dimensionality Reduction}
+#Removing our redundant variables
+Salary_df = as_tibble(subset(Salary, select = -c(min_salary,max_salary, 
+                                       `Salary Estimate`, Competitors,
+                                       `Job Title`, `Job Description`,
+                                       `Company Name`, Location,
+                                       Headquarters, Industry, hourly,
+                                       employer_provided, company_txt,
+                                       same_state)))
+```
+
+This shows that Sector, Age, Rating, Size and Revenue have 50, 10, 50, 11, 9 and 203 missing values respectively out of 742 observations. The impact of imputation on the first 4 columns could be said is negligible, however Revenue has around 27% of observations being missing which could create a bias and skewness when imputed.
+
+To remove the missing values, we must standardise them all to NA values before imputation. We will use the "naniar" package to accomplish this, using the replace_with_na() function.
+
+## 3.2 Standardising and counting all missing values to N/A values
+
+```{r Standardizing missing values, include=FALSE}
+
+Salary_df <- Salary_df %>% replace_with_na(replace = list(Founded = -1,
+                                 Sector = -1,
+                                 age = c(-1:17,81:300), # This includes transforming values outside of the 18-80 range into NA
+                                 Rating = -1,
+                                 Size = "Unknown",
+                                 ownership = "Unknown",
+                                 Revenue = "Unknown / Non-Applicable"))
+
+
+summary(Salary_df)
+```
+## 3.3 Listwise deletion on NA values
+
+We will use listwise deletion on NA values for "Rating", "Size", "Founded", "ownership" and "Sector".
+```{r Removing NA values}
+
+Salary_df <- Salary_df[!is.na(Salary_df$Rating),]
+Salary_df <- Salary_df[!is.na(Salary_df$Size),]
+Salary_df <- Salary_df[!is.na(Salary_df$Founded),]
+Salary_df <- Salary_df[!is.na(Salary_df$ownership),]
+Salary_df <- Salary_df[!is.na(Salary_df$Sector),]
+
+summary(Salary_df)
+
+```
+With this, the remaining NA values are on "Revenue" and "age" with 180 and 238 values respectively. These will be fixed with imputation techniques. By using the "Mice" package, we can use imputation techniques on "Revenue". For example, we will use "polr" for our imputation technique as Revenue is an ordered factor. However, for "age" we will use the mean for imputation.
+
+## 3.4 Impute missing values
+```{r Imputation, include=FALSE}
+Salary_imp <- mice(Salary_df, m = 5, method = c("","","","","","polr","","","","","","","",""), maxit = 20, seed = 1234)
+
+Salary_imp$imp$Revenue
+
+Salary_Final <- complete(Salary_imp,2)
+
+```
+
+## 3.5 Removing Age & other inconsistent data
+
+Based on our summary, the "age" column has 380 missing values. Due to this large number of NA values, the quality of this column is very poor and must not be used in the model.
+```{r Removing outliers for Age, echo=TRUE}
+
+#Removing age
+Salary_Final <- as_tibble(subset(Salary_Final, select = -c(age))) 
+
+#Inconsistent data
+unique(Salary_Final$job_state)
+Salary_Final["job_state"][Salary_Final["job_state"] == "Los Angeles"] <- "LA"
+
+```
+
+## 3.6 Removing outliers in "avg_salary"
+
+The summary also displayed 3rd Quartile to be 123.5 while the max value is 254. To remove bias-ness and influence of skewness, we will filter the "avg_salary" to a reasonable range of below 200.
+```{r Removing outliers for avg_salary, include=FALSE}
+
+#Filtering avg_salary to remove outliers
+Salary_Final <- Salary_Final %>% filter( avg_salary < 200)
+
+```
+
+## 3.6 Summary of Cleaned Data Set
+```{r Cleaned Dataset}
+summary(Salary_Final)
+str(Salary_Final)
+```
+\pagebreak
+# 4.0 Exploratory Data Analysis (EDA)
+
+## 4.1 Range of ‘avg_salary’ by skill sets (Boxplot)
+```{r Setting df for boxplot, warning=FALSE}
+
+# Filtering avg_salary by skill = TRUE & using melt() function to reshape
+
+python1 <- Salary_Final %>%
+  filter( python_yn == TRUE) %>%
+  select(avg_salary)%>%
+  rename(python = avg_salary)%>%
+  melt()
+
+R1 <- Salary_Final %>%
+  filter( R_yn == TRUE) %>%
+  select(avg_salary)%>%
+  rename(R = avg_salary)%>%
+  melt()
+
+
+spark1 <- Salary_Final %>%
+  filter( spark == TRUE) %>%
+  select(avg_salary)%>%
+  rename(spark = avg_salary)%>%
+  melt()
+
+
+aws1 <- Salary_Final %>%
+  filter( aws == TRUE) %>%
+  select(avg_salary)%>%
+  rename(aws = avg_salary)%>%
+  melt()
+
+
+excel1 <- Salary_Final %>%
+  filter( excel == TRUE) %>%
+  select(avg_salary)%>%
+  rename(excel = avg_salary)%>%
+  melt()
+
+
+#combining all into 1 
+df <- rbind(python1,R1,spark1,aws1,excel1)
+```
+
+```{r Plotting boxplot}
+boxplot1 <- ggplot(df, aes(x = variable, y = value)) +            # Applying ggplot function
+  geom_boxplot()+
+  xlab("Type of Skill")+
+  ylab("Yearly Salary in USD (000s)")+
+  ggtitle(" Ranges of Yearly Salary over Type of Skill")
+
+boxplot1
+```
+The box-plots in Fig. - compare the type of skill against the yearly salary in USD. Spark and Aws have the highest Salary range, more than 100000 USD, whereas there is a significant difference in the Salary range of people having skills in R programming, compared to Python, Spark, Aws and Excel. Excel is comparatively less demanding skill compared to Python, Spark, Aws as well.
+
+
+
+## 4.2 Count of ‘Sector’ by ‘Sector'
+```{r Industry count}
+
+by_Sector <- Salary_Final %>% count(Sector, sort = TRUE)
+  
+barchart <- ggplot(by_Sector,aes(x = Sector, y = n))+
+  geom_col()+
+  xlab("Type of Sector")+
+  ylab("Frequency")+
+  coord_flip()+
+  ggtitle(" Frequency of Sector")
+
+barchart 
+
+```
+The type of sector and frequency shows the frequency of jobs in each sector, which is imbalanced as the frequency of jobs in business sector, IT sector, Biotech and Pharmaceuticals is  high compared to other job sectors. The frequency of jobs in agricultural sector is the lowest, which displays biasness, due to the distribution. 
+
+
+## 4.3 Average Salary by Type of Company Ownership
+
+```{r boxplot2, warning=FALSE}
+owner <- Salary_Final %>%
+  select(avg_salary, ownership)%>%
+  melt()
+
+boxplot2 <- ggplot(owner, aes(x = ownership, y = value)) +            # Applying ggplot function
+  geom_boxplot()+
+  xlab("Type of Ownership")+
+  ylab("Yearly Salary in USD (000s)")+
+  theme(axis.text.x = element_text(size = 9, angle = 45, hjust = 1))+
+  ggtitle(" Yearly Salary based on type of Company Ownership")
+
+boxplot2 
+```
+The box plot in Fig, shows a comparison of yearly salary in USD against the type of ownership of the company. In regards to the various types of ownerships, there are significant gaps in the range of salaries offered in different types of organizations, where Subsidiaries or Business Segment has the highest range of yearly salaries for data scientists and School/School District has the lowest range of salary. 
+
+
+
+## 4.4 Salary Distribution Histogram
+
+```{r avg_salary Histogram}
+
+sal_hist <- ggplot(Salary_Final, aes(x = avg_salary))+
+  geom_histogram()+
+  xlab("Yearly Salary in USD (000s)")+
+  ylab("Frequency")
+
+sal_hist
+```
+Our distribution of Yearly Salary very roughly follows a bell curve, having the most frequencies in between 50-150K in Salary. Although, there are some peaks in certain Salary levels e.g. 25, 50, 60, 80 and 140. This can create some level of bias to our data. The distribution is also very wide which can create lots of variance and errors in our model.
+
+
+
+
+## 4.5 Converting continuous average salary to categorical variable
+
+This is use for Feature Selection.
+
+```{r conversion}
+
+hist (Salary_Final$avg_salary)
+summary (Salary_Final$avg_salary)
+sort (Salary_Final$avg_salary)
+
+Salary_Final <- within(Salary_Final, {
+  Salary_cat <- NA
+  Salary_cat[avg_salary < 15.5] <- "Very Low"
+  Salary_cat[avg_salary >= 15.5 & avg_salary < 73.0] <- "Low"
+  Salary_cat[avg_salary >= 73.0 & avg_salary < 98.5] <- "Average"
+  Salary_cat[avg_salary >= 98.5 & avg_salary < 121.62] <- "High"
+  Salary_cat[avg_salary >= 121.62] <- "Very High"
+
+})
+
+Salary_Final$Salary_cat <- factor(Salary_Final$Salary_cat, levels = c("Very High","High", "Average", "Low","Very Low"))
+str(Salary_Final)
+summary(Salary_Final$Salary_cat)
+```
+\pagebreak
+# 5.0 Feature Selection
+
+## 5.1 Library
+
+```{r library, include=FALSE}
+
+#install.packages("Boruta")
+library (Boruta)
+#install.packages("mlbench")
+library (mlbench)
+#install.packages("caret")
+library (caret)
+#install.packages("randomForest")
+library (randomForest)
+
+```
+
+## 5.2 Random Sampling Data
+
+```{r view data}
+data(Salary_Final)
+str(Salary_Final)
+view(Salary_Final)
+
+```
+## 5.3 K-Fold Cross Validation
+
+Before proceeding to cross-validation, it is important to split between the training and testing data of Salary_Final with a proportion of 80% : 20%.
+
+```{r splitting}
+RNGkind (sample.kind = "Rounding")
+set.seed(100)
+
+insample <- sample(nrow(Salary_Final), nrow(Salary_Final)*0.8)
+RF_train <- Salary_Final[insample,]
+RF_test <- Salary_Final[insample,]
+```
+
+Now, it is important to check on the proportion of the target class of the Salary_Final data.
+
+```{r checking proportion}
+
+prop.table(table(RF_train$Salary_cat))
+
+```
+Model Fitting
+
+```{r model fitting}
+
+set.seed (100)
+control <- trainControl(method = "repeatedcv", number = 5, repeats =3)
+
+model_RF <- train (Salary_cat ~ ., data = RF_train, method = "rf", trainControl = control)
+
+saveRDS(model_RF, "model_RF.RDS")
+
+```
+
+Read Model
+
+```{r read model}
+
+model_RF <- readRDS("model_RF.RDS")
+model_RF
+
+```
+
+From the results, we can understand as the following:
+
+1. 544 samples ->  the number of rows on our data train used in creating the model
+2. 13 predictor -> the number of predictor variables in our data train.
+3. 5 classes -> the number of target class on our data
+3. Summary of sample sizes -> the number of sample size on our data train based on the k-fold cross validation.
+4. mtry and accuracy -> shows the number of mtry used and the number of accuracy based on each entry.
+
+From the model summary, after doing several trials of mtry the number of mtry that we can choose is 100, which has the highest accuracy when tested in the test data from the boostrap sampling.
+
+## 5.4 Out of Bag Error
+
+The boostrap sampling produces unused data when making random forest. These data are called out-of-bag data and are considered as data test by the model. The model will then try to do prediction using those data and calculate the error. The error is called out-of-bag error.
+
+```{r read }
+
+model_RF$finalModel
+
+```
+From the above model, our out-of-bag error rate is 0.18%, which means our model’s accuracy is 100%. Based on the model, let's see what are the predictors that highly affect salary of a person.
+
+```{r plot}
+
+varImp(model_RF)
+
+```
+From the overall above, setting aside avg_salary as we have create a new column categorical class Salary_cat through avg_salary. So that we can predict the classes of range in average salary.
+
+1. Company in job_stateTN is the most important predictor for determining one’s salary.
+2. Second: Rating of the company
+3. Revenue.L: The company revenue is important even though it is indicate as Low compared to others.
+
+## 5.5 Prediction and Model Evaluation
+
+```{r model evaluation}
+model_RF_test <- predict(model_RF, newdata = RF_test)
+confusionMatrix(as.factor(model_RF_test), RF_test$Salary_cat)
+```
+\pagebreak
+# 6.0 Support Vector Machine
+
+## 6.1 Import the necessary data attribute for SVM model
+
+```{r svm library}
+#install.packages("e1071")
+library(e1071)
+
+Salary_Final_SVM <- Salary_Final[, c("Rating", "avg_salary","python_yn")]
+
+```
+
+## 6.2 Change the True = 0 and False = 1
+
+Also, change the data type for python_yn for SVM model.
+python_yn is now in "numeric" data type.
+
+```{r change to categorical variables}
+
+levels(Salary_Final_SVM$python_yn) <- c("0", "1")
+Salary_Final_SVM$python_yn <- as.numeric(Salary_Final_SVM$python_yn)
+class(Salary_Final_SVM$python_yn)
+
+```
+
+## 6.3 Import the necessary data attribute for SVM model
+
+```{r svm library import with necessaray data}
+#install.packages("e1071")
+library(e1071)
+
+Salary_Final_SVM <- Salary_Final[, c("Rating", "avg_salary","python_yn")]
+
+```
+
+## 6.4 Encoding the target feature as factor
+
+```{r encoding}
+
+Salary_Final_SVM$python_yn <- as.logical(Salary_Final$python_yn, levels = c(0,1))
+class(Salary_Final$python_yn)
+Salary_Final_SVM
+
+```
+
+## 6.5 Splitting the dataset
+
+
+```{r splitting dataset}
+#install.packages('caTools')
+library(caTools)
+ 
+set.seed(123)
+split = sample.split(Salary_Final_SVM$python_yn, SplitRatio = 0.80)
+split
+ 
+training_set = subset(Salary_Final_SVM, split == TRUE)
+test_set = subset(Salary_Final_SVM, split == FALSE)
+```
+## 6.6 Feature Scaling
+
+It is often necessary to perform feature scaling when using Support Vector Machines (SVM).
+
+SVM is sensitive to the scale of the features, so if the features have different scales, the model may give more weight to the features with larger scales, and this can impact the model's performance. 
+
+Feature scaling, also known as normalization, addresses this issue by transforming the features so that they have the same scale.
+
+```{r feature scaling, include=FALSE}
+training_set[-3] = scale(training_set[-3])
+test_set[-3] = scale(test_set[-3])
+
+```
+
+## 6.7 Fitting SVM to the training set
+
+```{r fitting SVM}
+#install.packages('e1071')
+library(e1071)
+ 
+classifier = svm(formula = python_yn ~ .,
+                 data = training_set,
+                 type = 'C-classification',
+                 kernel = 'linear')
+
+classifier
+```
+## 6.8 Predicting the test set result
+
+```{r predict test result}
+y_pred = predict(classifier, newdata = test_set[-3])
+y_pred
+```
+## 6.9 Visualizing the Training set results
+
+```{r visualize training set }
+library(caret)
+
+#install.packages('Rfast')
+library('Rfast')
+set  = training_set
+X1 = seq(min(set[, 1]) -1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) -1, max(set[, 2]) + 1, by = 0.01)
+grid_set = expand.grid(X1, X2)
+colnames(grid_set) = c('Rating', 'avg_salary')
+prob_set = predict(classifier, type = 'response', newdata = grid_set)
+y_grid = ifelse(prob_set==0, 1, 0)
+plot(set[, -3],
+     main = 'SVM (Training Set)',
+     xlab = 'Rating',
+     ylab = 'avg_salary',
+     xlim = range(X1),
+     ylim = range(X2)
+)
+contour(X1, X2, matrix(as.numeric(y_grid),length(X1), length(X2)), add = TRUE)
+points(grid_set, pch = '.', col = ifelse(y_grid==1, 'springgreen3', 'tomato') )
+points(set, pch = 21, bg = ifelse(set[, 3]== 1, 'green4', 'red3'))
+
+```
+## 6.10 Visualizing the Test set results
+
+```{r visualize test set}
+# Visualizing the test set results
+# install.packages('Rfast')
+library('Rfast')
+set  = test_set
+X1 = seq(min(set[, 1]) -1, max(set[, 1]) + 1, by = 0.01)
+X2 = seq(min(set[, 2]) -1, max(set[, 2]) + 1, by = 0.01)
+grid_set = expand.grid(X1, X2)
+colnames(grid_set) = c('Rating', 'avg_salary')
+prob_set = predict(classifier, type = 'response', newdata = grid_set)
+y_grid = ifelse(prob_set == 1, 1, 0)
+plot(set[, -3],
+     main = 'SVM (Test Set)',
+     xlab = 'Rating',
+     ylab = 'avg_salary',
+     xlim = range(X1),
+     ylim = range(X2)
+)
+
+contour(X1,X2, matrix(as.numeric(y_grid),length(X1), length(X2)), add = TRUE)
+points(grid_set, pch = '.', col = ifelse(y_grid==1, 'springgreen3', 'tomato') )
+points(set, pch = 21, bg = ifelse(set[, 3]== 1, 'green4', 'red3'))
+```
+## 6.11 Building SVM Regressor model for comparing Training and Testing
+
+Caret package is used to perform SVM regression. 
+
+First, we will use the trainControl() function to define the method of cross validation to be carried out and search type i.e. "grid". Then train the model using train() function.
+
+Syntax: train(formula, data = , method = , trControl = , tuneGrid = )
+
+where:
+
+formula = y~x1+x2+x3+..., where y is the independent variable and x1,x2,x3 are the dependent variables
+data = dataframe
+method = Type of the model to be built ("svmLinear" for SVM)
+trControl = Takes the control parameters. We will use trainControl function out here where we will specify the Cross validation technique.
+tuneGrid = takes the tuning parameters and applies grid search CV on them
+
+```{r regressor training}
+
+# specifying the CV technique which will be passed into the train() function later and number parameter is the "k" in K-fold cross validation
+train_control_training = trainControl(method = "cv", number = 5)
+
+set.seed(50)
+
+# training a Regression model while tuning parameters (Method = "rpart")
+model_training = train(avg_salary~., data = training_set, method = "svmLinear", trControl = train_control_training)
+
+# summarising the results
+print(model_training)
+```
+The root mean squared error (RMSE) for training set is 0.9604208.
+
+
+## 6.12 Make predictions on the SVM testing model
+
+```{r prediction on testing }
+library(Metrics)
+
+
+# Fit the SVM model on the training data
+svm_model <- svm(avg_salary ~ ., data = training_set, type = "eps-regression")
+
+# Make predictions on the testing data
+testing_predictions <- predict(svm_model, newdata = test_set)
+
+# Calculate the RMSE of the testing set
+testing_rmse <- rmse(testing_predictions, test_set$avg_salary)
+
+# Print the RMSE of the testing set
+print(testing_rmse)
+```
+The root mean squared error (RMSE) for testing set is 0.9127156.
+
+## 6.13 Final Results for SVM Model 
+
+The testing set in an SVM model for our salary prediction data set is the BETTER FIT SVM model to the data.
+
+As the RMSE Testing = 0.9127156 lower compare to RMSE Training = 0.9604208, it means a lower RMSE value for the testing set indicates that the model is generalizing well to new, unseen data. Overall, it is the best fit to the data. However in general, a good model should have a low MSE on both the training and testing set.
+
+For our results, our training and testing are only 0.0477052 difference.
+
+\pagebreak
+
+# 7.0 Multiple Linear Regression
+
+We will be using the Multiple Linear Regression model as we want to predict the value of Yearly Salary. Instead of the normal linear regression with only 1 variable influencing the predicted label. However, to be more accurate, we will use Multiple linear regression to allow for multiple independent variables for the predictor. Furthermore, this would mean that we need to test and meet the assumptions of Multiple linear regression i.e. the relationship between the independent and dependent variables are linear which can be illustrated with by scatter plots. Secondly, the errors between observed and predicted values (e.g. residuals of regression) should be normally distributed. Another assumption to be tested is that there is no multicollinearity in the data. This occurs when our independent variables are too highly correlated to each other. We will test this with Variance Inflation Factor. Lastly, the final assumption is to check for homoscedasticity, the lacking of any patterns in the scatterplot of residuals against predicted values.
+
+We will restrict the data set to the features identified by our feature selection process for this analysis: "Rating", "python_yn" and "job_state".
+
+## 7.1 Generating Multiple Linear Regression model
+
+### Generating new Data set
+
+```{r MLR Data set}
+Salary_Final_MLR <- Salary_Final[, c("Rating", "avg_salary","python_yn","job_state")]
+```
+
+### Univariate & Bivariate Analysis
+
+```{r}
+x <- plot(Salary_Final_MLR$Rating,Salary_Final_MLR$avg_salary)
+
+z <- ggplot(Salary_Final_MLR, aes(x=job_state)) + geom_bar()
+z
+
+y <- ggplot(Salary_Final_MLR, aes(x= avg_salary, fill = python_yn)) + geom_histogram() 
+y
+```
+Based on our quick illustrations on our independent variables, occurrences of high salary occur most in companies with a rating between 3.0 and 4.0. Furthermore, jobs located in CA, MA, NY and VA have the most frequency, this can imply that the model may struggle with its accuracy for jobs located outside of these areas. Lastly, it can be stated that there are people without a python skill set than with, while also having more frequencies at higher salaries. This can cause bias and inaccuracy to the model due to the imbalance of class. Moreover, both TRUE or FALSE for python_yn is somewhat of a bellcurve for Salary which can mean indicate that it is sort of normally distributed.
+
+However, we should also test whether the Multiple Linear Regression model would perform better on 2 predictors e.g. avg_salary ~ Rating + python_yn.  
+
+### Creating dataset with 2 Predictors
+
+```{r 2 predictors}
+
+Salary_Final_MLR2 <- subset(Salary_Final_MLR, select = -c(job_state))
+
+```
+
+
+### Splitting Data set into Training and Test set
+
+```{r splitting set for regression}
+set.seed(123)
+
+# Splitting 80% for training and 20% for testing
+sampleset <- sample.split(Salary_Final_MLR$avg_salary, SplitRatio = 0.8)
+
+reg_training1 <- subset(Salary_Final_MLR, sampleset == TRUE)
+reg_test1 <- subset(Salary_Final_MLR, sampleset == FALSE)
+
+reg_training2 <- subset(Salary_Final_MLR2, sampleset == TRUE)
+reg_test2 <- subset(Salary_Final_MLR2, sampleset == FALSE)
+
+```
+
+
+### Regression model & Graphical Output
+
+```{r Regression model}
+MLR1 <- lm(avg_salary ~ Rating + python_yn + job_state, data = reg_training1)
+MLR2 <- lm(avg_salary ~  python_yn + Rating, data = reg_training2)
+#Rsquared of both models
+summary(MLR1)$r.squared
+summary(MLR2)$r.squared
+#RSE of both models
+summary(MLR1)$sigma
+summary(MLR2)$sigma
+```
+We will refer to the regression model with 3 predictors as MLR1 and the model with 2 predictors as MLR2. Summary of MLR2 (model with 2 predictors) shows that the the R^2 statistic is 0.103. This means that 10.3% of the variation in avg_salary is accounted by python_yn and Rating whereas the R^2 statistic of MLR1 (model with 3 predictors) is 0.3013 or 30.1%. Therefore, it can be deduced that job_state accounts for 19.8% of variation. This inclusion of job_state increased the variation of almost 20% in Salary. Furthermore, it can be seen that MLR2 has higher RSE on higher degrees of freedom.This can imply MLR2 is less accurate in comparison to MLR1.
+
+We can also explore the regression line of MLR2 as ggplot has the capability of plotting on with 1 continuous predictor and 1 nominal predictor. 
+```{r Regression model2}
+equation1=function(x){coef(MLR2)[2]*x+coef(MLR2)[1]}
+
+
+ggplot(Salary_Final_MLR2,aes(y=avg_salary,x=Rating,color=python_yn))+geom_point()+
+        stat_function(fun=equation1,geom="line",color=scales::hue_pal()(2)[1])+
+        ylab("Yearly Salary")+
+        xlab("Rating")+
+        ggtitle("Regression Line of Salary & Rating")
+```
+It can be seen that the regression line does not pass through many of the observations.
+
+## 7.2 Testing Regression Model Assumptions
+### Standardized Beta Estimates
+
+```{r beta estimates}
+library(lm.beta)
+lm.beta(MLR1)
+lm.beta(MLR2)
+
+```
+In regards to MLR1, the beta values of Rating and python_ynTRUE are 0.10 and 0.26 respectively while each job_state are varying e.g. 0.07, -0.05 and 0.666. Beta values indicate the number of standard deviations, changing the outcome depending on how much standard deviation change in the predictor. This means that the higher the beta, the higher the change in Salary. For example, certain states have higher betas in comparison to Rating and python_ynTRUE, jobs in California, New York or Massachusetts have higher influence in generating a higher Salary. 
+
+On the other hand, MLR2 only has python_ynTRUE and Rating. Their beta values are 0.30 and 0.08 respectively, this implies that without job_state, python_ynTRUE has higher effects of changing the outcome. 
+
+
+### Confidence Intervals 
+
+```{r Confint}
+confint(MLR1)
+confint(MLR2)
+```
+MLR1 has very poor confidence intervals, the best predictors in this case are Rating and python_ynTRUE which have tighter confidence intervals in comparison to the job_state intervals where it crosses zero. Meanwhile, MLR2 has better confidence intervals in the intercept but very slightly wider in Rating and python_ynTRUE. Specifically, Rating also crosses zero. Overall, python_ynTRUE and Rating show significance tight intervals in comparison to job_state.
+
+### Comparing Models
+
+```{r ANOVA}
+
+anova(MLR2,MLR1)
+
+```
+The p-value is signficantly smaller than 0.01. This means that the alternative hypothesis is accept and that there is a difference between including job_state and not including it, F(36,523) = 4.12.
+
+### Assesing the assumption of independence
+
+```{r Assump of Independence}
+library(car)
+durbinWatsonTest(MLR1)
+durbinWatsonTest(MLR2)
+```
+Both models have a D-W Statistic that is very close to 2 but very slightly above. This means that our residuals are marginally negative autocorrelated while both p-values are above 0.05. With this result, we can say it passes the assumption of independence. 
+
+### Assessing the assumption of no multicollinearity
+
+```{r multicollinearity}
+v1 <- vif(MLR1)
+v1
+v2 <- vif(MLR2)
+v2
+```
+The Variance inlfation factor (vif) is a measure of the amount of multicollinearity in the regression model. When multicollinearity exists, it means that there is a correlation between the multiple independent variables, in this case it is a test of how correlated 
+Rating, python_yn and job_state are. In this case, because we are using a polynomial variable for MLR1 , GVIF is generated. Despite that, in both models, all the VIF scores are very close to 1 which can indicate the absence of collinearity between each of the predictors and variables. This suggests that both models also pass the assumption of no multicollinearity.
+
+### Assessing our Assumptions of Homoscedasticity (Residuals and Linearity)
+
+```{r Resid}
+#Storing each model's residuals
+res1 <- resid(MLR1)
+res2 <- resid(MLR2)
+
+
+```
+
+```{r MLR1 resid}
+#produce residual vs. fitted plot
+plot(fitted(MLR1), res1)
+
+#add a horizontal line at 0 
+abline(0,0)
+```
+In the case for MLR1, the plotting has resulted in somewhat of a funnel-shape. This could imply heteroscedasticity in our model indicating an increase of variance going across the residuals.
+
+```{r MLR2 resid}
+#produce residual vs. fitted plot
+plot(fitted(MLR2), res2)
+
+#add a horizontal line at 0 
+abline(0,0)
+```
+On the other hand, the MLR2 model has generated 2 clusters but show no violation of the assumption of homoscedasticity.
+
+Finally, lets also generate Q-Q and histogram plots to dig deeper into our residuals.
+
+
+```{r Q-Q}
+
+#create Q-Q plot for residuals
+qqnorm(res1)
+
+#add a straight diagonal line to the plot
+qqline(res1) 
+
+#Create density plot of residuals
+plot(histogram(res1))
+```
+For our MLR1 model, most residuals remain on the plotted line until lower end and higher end of the plot. In this case, the data points only follow the straight line from -1 to 1 of the theoretical Quantities which might indicate that our data is not normally distributed.
+
+However, the Histogram of our residuals indicated that it follows the bell curve quite well except for the fact that the most centered area is too high. Overall, MLR1 roughly follows the bell-shaped symmetry and could be assumed that the data is normally distributed
+
+```{r Q-Q2}
+
+#create Q-Q plot for residuals
+qqnorm(res2)
+
+#add a straight diagonal line to the plot
+qqline(res2) 
+
+#Create density plot of residuals
+plot(histogram(res2))
+```
+Taking a look into MLR2, the Q-Q plot illustrates that the data points are straying away much further from the plotted line, indicating that the data points are not normally distributed. This is further cemented by the histogram which show that the residuals are skewed to the left, indicating that it is not following a bell shape. This means that MLR2 has completely violated the assumption of normality.
+
+With all tests of our assumptions completed, it can be concluded that MLR1 is better than MLR2 in most cases, being more accurate for the sample and generalisable to the population. However, the possibility of heteroscedasticity should be verified but for the sake of this project, we will proceed with MLR1 for Salary predictions.
+
+## 7.3 Predictions
+
+```{r Prediction}
+#Making predictions
+reg_pred <- predict(MLR1, newdata = reg_test1)
+
+reg_ci <- predict(MLR1, newdata = reg_test1, interval = "confidence", level=.95)
+head(reg_ci)
+```
+After we predicted the Salary on our test set, we also generated the confidence intervals for each predicted Salary. As seen from the head(reg_ci), many of the values have very wide upper and lower bounds for the interval, this means that the range of the predicted Salary being incorrect is very high. 
+
+The evaluation metrics are generated below. Just for comparison, we also generated predictions from MLR2 to illustrate the changes in performance from 2 predictors to 3. 
+```{r keephidden, include=FALSE}
+reg_pred2 <- predict(MLR2, newdata = reg_test2)
+Mdl2 <- postResample(pred = reg_pred2, obs = reg_test2$avg_salary)
+```
+
+```{r metrics}
+Mdl1 <- postResample(pred = reg_pred, obs = reg_test1$avg_salary)
+Mdl1
+Mdl2
+```
+The first results are MLR1 and the second is MLR2. Based on the output above, MLR1 has a lower RMSE than MLR2 which means that the average difference between values predicted by MLR1 is smaller than MLR2. Secondly, Rsquared values are much higher with MLR1, implying that the regression model can explain 20% of the variability of the Salary. Lastly, MLR1's mean absolute error is slightly smaller meaning that MLR1 is slightly more accurate in generating predictions. 
+
+## 7.4 Overall Results
+
+In conclusion, the overall regression model performance was not as expected. With a MAE value of 24.2, this means that on average, the actual value will be in the range of 24.2 plus/minus outside the fitted line. Furthermore, with the Rsquared value being 0.2, only 20% of the variability could be explained by the model. This can mean that not enough variables have been added to the model, causing our regression model to be under-fit. This may also be due to the lack of other continuous variables in the dataset, leaving only categorical variables to be used. If the quality of the data set was much better, age not having 380 missing values and consisting more of continuous variables, the model performance would be much better. As the saying goes, "garbage in, garbage out". This could be due to the fact that our dependent variable (avg_salary) is very influenced by scale and no common pattern in regards to the tech industry. For example, many tech jobs are present in certain states such as New York and Los Angeles. Variables such as this heavily impact the model performance.
+
+## 7.5 Generating a Second Iteration
+
+Changes should be made for improvements: we will be testing whether increasing the number of variables from 3 to 5 would be a significant improvement to the model. Furthermore, we can try to resolve the potentiality of heteroscedasticity if it is present but due to the fact that majority of variables are factor or categorical, it will be difficult to attempt to log transformation our dataset.
+
+### Building a new model
+
+```{r 2nd iteration}
+
+# Data set with 5 variables
+
+Salary_Final_MLR3 <- Salary_Final[, c("Rating", "avg_salary","python_yn","job_state",
+                                      "Revenue","Sector")]
+
+# Splitting dataset
+reg_training3 <- subset(Salary_Final_MLR3, sampleset == TRUE)
+reg_test3 <- subset(Salary_Final_MLR3, sampleset == FALSE)
+
+# Model
+MLR3 <- lm(avg_salary ~ Rating + python_yn + job_state + Revenue + Sector, data = reg_training3)
+
+summary(MLR3)$r.squared
+summary(MLR3)$sigma
+```
+
+As shown by the summary, MLR3's residual standard error is 30.15 while MLR2 is 31.63. This means that despite adding new variables, the error as not significantly improved. This would mean that we need to attempt a different way to improve our model performance.
+As previously mentioned, we identified the potentiality of heteroscedasticity in our model, let's try to diagnose this issue with the  Breusch-Pagan test. 
+
+```{r diagnosis}
+library(lmtest)
+
+bptest(MLR3)
+
+```
+Using the common level of significance as 0.05, with our resulting p-value as 0.000003728, the null hypothesis of homoscedasticity is rejected. This means that heteroscedasticity is present.
+
+### Weighted Least Squares Regression
+
+As heteroscedasticity is present, performing weighted least squares by defining weights would lower the variance of our observations and hopefully improve the performance.
+```{r WLS}
+
+# defining weights to use
+wt <- 1 / lm(abs(MLR3$residuals) ~ MLR3$fitted.values)$fitted.values^2
+
+#creating WLS model
+wls_salary <- lm(avg_salary ~ Rating + python_yn + job_state + Revenue + Sector,
+                 data = reg_training3, weights=wt)
+
+#Rsquared value
+summary(wls_salary)$r.squared
+
+summary(wls_salary)$sigma
+```
+
+The result of our WLS model has significantly improved in regards to the Residual standard error (1.351 from 30.15). Furthermore, the Rsquared value has also improved significantly from 0.4039 to 0.5313, meaning that an increase of 13% of the variance in salary could be explained by our WLS regression model.
+
+### Checking for assumptions
+
+```{r assumptions}
+# Test for Heteroscedasticity
+plot(wls_salary)
+bptest(wls_salary)
+hist(wls_salary$residuals)
+```
+As our p value is well above 0.05, we can say that our data no longer violates the assumption of homoscedasticity. Furthermore, the assumptions of linearity and normality have also been met with our plots and histogram. 
+
+```{r dwt + vif}
+# Durbin-Watson test
+dwt(wls_salary)
+# VIF, Tolerance and Mean VIF
+vif(wls_salary)
+1/vif(wls_salary)
+mean(c(1.248677,1.258901,1.121212,1.199579,1.185648))
+```
+Our Durbin-Watson test shows that the DW statistic is within the acceptable range, being very close to 2.0, furthermore the p-value is well above 0.05 which confirms our conclusion. This meets the assumption of independence. Regarding our VIF and tolerance, we will be referring to the GVIF^(1/(2*Df)) values as we have many nominal values. The VIF scores show that all are well below 10 while the tolerance is well above 0.2. Furthermore, the mean VIF is quite close to 1. Based on these values, we can safely conclude that there is no collinearity within our data.
+
+Overall, all assumptions have been met by our model meaning that it can be accurate and be used to generalise the population. We will proceed with the predictions to see evaluate the model performance.
+
+### WLS Model Predictions
+
+```{r predict2}
+#Making predictions
+reg_pred3 <- predict(wls_salary, newdata = reg_test3)
+
+reg_ci3 <- predict(wls_salary, newdata = reg_test3, interval = "confidence", level=.95)
+head(reg_ci)
+```
+Similar to the previous model, the Salary is highly variable and in most cases have very high ranges between the intervals. Let's dig deeper to evaluate the model performance. 
+
+```{r EV Metrics}
+Mdl3 <- postResample(pred = reg_pred3, obs = reg_test3$avg_salary)
+## Comparing our 2 models
+# First model
+Mdl1
+# Second iteration
+Mdl3
+```
+Based on these measures, our WLS model has improved on all metrics. For example, the Root Mean Squared error has improved with a decrease of 4. Similarly, the Mean Absolute Error has also decreased by 4. Both of these metrics imply that our model has improved in becoming more accurate in predicting Salary. Lastly, Rsquared value has significantly increased from 0.20 to 0.39 which is an increase of 19% in being able to explain the variability of Salary in our model.
+
